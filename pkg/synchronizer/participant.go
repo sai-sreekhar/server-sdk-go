@@ -54,32 +54,57 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 }
 
 func (p *participantSynchronizer) synchronizeTracks() {
+	fmt.Println("Entering participantSynchronizer.synchronizeTracks")
+
 	// get estimated ntp start times for all tracks
+	fmt.Println("Calculating estimated NTP start times for all tracks.")
 	estimatedStartTimes := make(map[uint32]time.Time)
 
 	// we will sync all tracks to the earliest
 	var earliestStart time.Time
 	for ssrc, pkt := range p.senderReports {
+		fmt.Printf("Processing sender report: SSRC=%d, NTPTime=%v\n", ssrc, mediatransportutil.NtpTime(pkt.NTPTime).Time())
+
 		t := p.tracks[ssrc]
+		if t == nil {
+			fmt.Printf("Warning: No track found for SSRC=%d\n", ssrc)
+			continue
+		}
+
 		pts := t.getSenderReportPTS(pkt)
+		fmt.Printf("Calculated PTS for SSRC=%d: %v\n", ssrc, pts)
+
 		ntpStart := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(-pts)
+		fmt.Printf("Calculated NTP start time for SSRC=%d: %v\n", ssrc, ntpStart)
+
 		if earliestStart.IsZero() || ntpStart.Before(earliestStart) {
+			fmt.Printf("Updating earliest start time: Previous=%v, New=%v\n", earliestStart, ntpStart)
 			earliestStart = ntpStart
 		}
+
 		estimatedStartTimes[ssrc] = ntpStart
 	}
 	p.ntpStart = earliestStart
-	fmt.Printf("Inside participantSynchronizer synchronizeTracks function, Updated p.ntpStart: %v\n", p.ntpStart)
+	fmt.Printf("Updated participant NTP start time (p.ntpStart): %v\n", p.ntpStart)
 
 	// update pts delay so all ntp start times will match the earliest
+	fmt.Println("Adjusting PTS offset for all tracks to match the earliest start time.")
 	for ssrc, startedAt := range estimatedStartTimes {
 		t := p.tracks[ssrc]
+		if t == nil {
+			fmt.Printf("Warning: No track found for SSRC=%d during PTS adjustment.\n", ssrc)
+			continue
+		}
+
 		if diff := startedAt.Sub(earliestStart); diff != 0 {
+			fmt.Printf("Adjusting PTS offset for SSRC=%d: CurrentPTSOffset=%v, Adjustment=%v\n", ssrc, t.ptsOffset, diff)
 			t.Lock()
 			t.ptsOffset += diff
 			t.Unlock()
 		}
 	}
+
+	fmt.Println("Exiting participantSynchronizer.synchronizeTracks")
 }
 
 func (p *participantSynchronizer) getMaxOffset() time.Duration {
