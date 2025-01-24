@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/livekit/protocol/livekit"
-	lksdk "github.com/livekit/server-sdk-go/v2"
+	lksdk "github.com/sai-sreekhar/server-sdk-go/v2"
 )
 
 // ExampleRoomCallback demonstrates usage of RoomCallback to handle various room events

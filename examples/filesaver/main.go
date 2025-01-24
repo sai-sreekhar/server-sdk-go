@@ -31,8 +31,8 @@ import (
 	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
 
 	"github.com/livekit/protocol/logger"
-	lksdk "github.com/livekit/server-sdk-go/v2"
-	"github.com/livekit/server-sdk-go/v2/pkg/samplebuilder"
+	lksdk "github.com/sai-sreekhar/server-sdk-go/v2"
+	"github.com/sai-sreekhar/server-sdk-go/v2/pkg/samplebuilder"
 )
 
 var (

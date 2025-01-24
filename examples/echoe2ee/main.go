@@ -15,7 +15,7 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
-	lksdk "github.com/livekit/server-sdk-go/v2"
+	lksdk "github.com/sai-sreekhar/server-sdk-go/v2"
 )
 
 var (
