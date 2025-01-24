@@ -112,6 +112,8 @@ func (s *Synchronizer) getOrSetStartedAt(now int64) int64 {
 // OnRTCP syncs a/v using sender reports
 func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
 	fmt.Println("Entering Synchronizer.OnRTCP")
+	// Log the type of the incoming packet
+	fmt.Printf("RTCP packet type: %T\n", packet)
 
 	switch pkt := packet.(type) {
 	case *rtcp.SenderReport:
