@@ -15,6 +15,7 @@
 package synchronizer
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -110,19 +111,39 @@ func (s *Synchronizer) getOrSetStartedAt(now int64) int64 {
 
 // OnRTCP syncs a/v using sender reports
 func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
+	fmt.Println("Entering Synchronizer.OnRTCP")
+
 	switch pkt := packet.(type) {
 	case *rtcp.SenderReport:
+		fmt.Printf("Received RTCP Sender Report: SSRC=%d, NTPTime=%v, RTPTime=%d\n",
+			pkt.SSRC, pkt.NTPTime, pkt.RTPTime)
+
+		// Lock to access shared resources
 		s.Lock()
+		fmt.Println("Acquired lock in Synchronizer.OnRTCP")
+
+		// Get the participant synchronizer for the given SSRC
 		p := s.psBySSRC[pkt.SSRC]
 		endedAt := s.endedAt
 		s.Unlock()
+		fmt.Println("Released lock in Synchronizer.OnRTCP")
 
-		if endedAt != 0 || p == nil {
+		// Log the status of participant synchronizer and endedAt
+		if endedAt != 0 {
+			fmt.Printf("Ignoring RTCP Sender Report for SSRC=%d as endedAt is non-zero: endedAt=%d\n", pkt.SSRC, endedAt)
+			return
+		}
+		if p == nil {
+			fmt.Printf("No participant synchronizer found for SSRC=%d. Ignoring RTCP Sender Report.\n", pkt.SSRC)
 			return
 		}
 
+		// Process the Sender Report
+		fmt.Printf("Processing Sender Report for SSRC=%d in participant synchronizer.\n", pkt.SSRC)
 		p.onSenderReport(pkt)
 	}
+
+	fmt.Println("Exiting Synchronizer.OnRTCP")
 }
 
 func (s *Synchronizer) End() {
