@@ -15,6 +15,7 @@
 package synchronizer
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -35,16 +36,19 @@ type participantSynchronizer struct {
 func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	p.Lock()
 	defer p.Unlock()
-
+	fmt.Printf("pkt.ssrc: %d\n", pkt.SSRC)
 	if p.ntpStart.IsZero() {
+		fmt.Println("p.ntpStart is zero.")
 		p.senderReports[pkt.SSRC] = pkt
 		if len(p.senderReports) == len(p.tracks) {
+			fmt.Println("Calling p.synchronizeTracks().")
 			p.synchronizeTracks()
 		}
 		return
 	}
 
 	if t := p.tracks[pkt.SSRC]; t != nil {
+		fmt.Printf("Calling onSenderReport function using trackSynchronizer. p.ntpStart: %v\n", p.ntpStart)
 		t.onSenderReport(pkt, p.ntpStart)
 	}
 }
@@ -65,6 +69,7 @@ func (p *participantSynchronizer) synchronizeTracks() {
 		estimatedStartTimes[ssrc] = ntpStart
 	}
 	p.ntpStart = earliestStart
+	fmt.Printf("Inside participantSynchronizer synchronizeTracks function, Updated p.ntpStart: %v\n", p.ntpStart)
 
 	// update pts delay so all ntp start times will match the earliest
 	for ssrc, startedAt := range estimatedStartTimes {

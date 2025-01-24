@@ -16,6 +16,7 @@ package synchronizer
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"sync"
@@ -320,26 +321,38 @@ func (t *TrackSynchronizer) getSenderReportPTSLocked(pkt *rtcp.SenderReport) tim
 
 // onSenderReport handles pts adjustments for a track
 func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, ntpStart time.Time) {
+	fmt.Println("Entering TrackSynchronizer.onSenderReport function")
+	fmt.Printf("Received Sender Report: SSRC=%d, RTPTime=%d, NTPTime=%d, ntpStart=%v\n",
+		pkt.SSRC, pkt.RTPTime, pkt.NTPTime, ntpStart)
+
 	t.Lock()
 	defer t.Unlock()
 
 	// we receive every sender report twice
 	if pkt.RTPTime == t.lastSR {
+		fmt.Printf("Skipping duplicate sender report with RTPTime: %d\n", pkt.RTPTime)
 		return
 	}
 
 	pts := t.getSenderReportPTSLocked(pkt)
+	fmt.Printf("Calculated PTS: %v from sender report RTPTime: %d\n", pts, pkt.RTPTime)
 	calculatedNTPStart := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(-pts)
 	drift := calculatedNTPStart.Sub(ntpStart)
+	fmt.Printf("Calculated NTP start: %v, Drift: %v\n", calculatedNTPStart, drift)
 
 	t.stats.updateDrift(drift)
 	if drift > maxDrift {
 		drift = maxDrift
+		fmt.Printf("Drift clamped to maxDrift: %v\n", maxDrift)
 	} else if drift < -maxDrift {
 		drift = -maxDrift
+		fmt.Printf("Drift clamped to -maxDrift: %v\n", -maxDrift)
 	}
 	t.ptsOffset += drift
+	fmt.Printf("Updated PTS offset: %v\n", t.ptsOffset)
 	t.lastSR = pkt.RTPTime
+	fmt.Printf("Updated last sender report RTPTime: %d\n", t.lastSR)
+	fmt.Println("Exiting TrackSynchronizer.onSenderReport function")
 }
 
 type TrackStats struct {
