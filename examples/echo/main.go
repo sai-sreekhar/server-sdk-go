@@ -3,13 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/logger"
@@ -18,27 +17,32 @@ import (
 
 var (
 	host, apiKey, apiSecret, roomName, identity string
-	firstParticipantSubscribed                  = false
+	firstAudioSubscribed                        = false
+	firstVideoSubscribed                        = false
 )
 
 func init() {
-	flag.StringVar(&host, "host", "", "livekit server host")
-	flag.StringVar(&apiKey, "api-key", "", "livekit api key")
-	flag.StringVar(&apiSecret, "api-secret", "", "livekit api secret")
-	flag.StringVar(&roomName, "room-name", "", "room name")
-	flag.StringVar(&identity, "identity", "", "participant identity")
+	flag.StringVar(&host, "host", "", "LiveKit server host (e.g. ws://localhost:7880)")
+	flag.StringVar(&apiKey, "api-key", "", "LiveKit API key")
+	flag.StringVar(&apiSecret, "api-secret", "", "LiveKit API secret")
+	flag.StringVar(&roomName, "room-name", "", "Room name")
+	flag.StringVar(&identity, "identity", "", "Participant identity")
 }
 
 func main() {
-	logger.InitFromConfig(&logger.Config{Level: "debug"}, "echo")
+	logger.InitFromConfig(&logger.Config{Level: "debug"}, "rtp-forward")
 	lksdk.SetLogger(logger.GetLogger())
 	flag.Parse()
 	if host == "" || apiKey == "" || apiSecret == "" || roomName == "" || identity == "" {
-		fmt.Println("invalid arguments.")
+		fmt.Println("invalid arguments")
 		return
 	}
 
-	echoTrack, err := lksdk.NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus})
+	echoAudioTrack, err := lksdk.NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus})
+	if err != nil {
+		panic(err)
+	}
+	echoVideoTrack, err := lksdk.NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264})
 	if err != nil {
 		panic(err)
 	}
@@ -46,10 +50,15 @@ func main() {
 	room := lksdk.NewRoom(&lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-				// Only provide echo for the first participant
-				if !firstParticipantSubscribed && track.Kind() == webrtc.RTPCodecTypeAudio {
-					firstParticipantSubscribed = true
-					onTrackSubscribed(track, echoTrack)
+				// Forward only the first audio track
+				if track.Kind() == webrtc.RTPCodecTypeAudio && !firstAudioSubscribed {
+					firstAudioSubscribed = true
+					go forwardRTP(track, echoAudioTrack, "audio")
+				}
+				// Forward only the first video track
+				if track.Kind() == webrtc.RTPCodecTypeVideo && !firstVideoSubscribed {
+					firstVideoSubscribed = true
+					go forwardRTP(track, echoVideoTrack, "video")
 				}
 			},
 		},
@@ -60,47 +69,57 @@ func main() {
 		panic(err)
 	}
 
-	// not required. warm up the connection for a participant that may join later.
 	if err := room.PrepareConnection(host, token); err != nil {
 		panic(err)
 	}
-
 	if err := room.JoinWithToken(host, token); err != nil {
 		panic(err)
 	}
 
-	if _, err = room.LocalParticipant.PublishTrack(echoTrack, &lksdk.TrackPublicationOptions{
-		Name: "echo",
+	// Publish the echo tracks.
+	if _, err = room.LocalParticipant.PublishTrack(echoAudioTrack, &lksdk.TrackPublicationOptions{
+		Name: "echo-audio",
+	}); err != nil {
+		panic(err)
+	}
+	if _, err = room.LocalParticipant.PublishTrack(echoVideoTrack, &lksdk.TrackPublicationOptions{
+		Name: "echo-video",
 	}); err != nil {
 		panic(err)
 	}
 
+	// Wait for termination signal.
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT)
-
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 	room.Disconnect()
 }
 
-func onTrackSubscribed(track *webrtc.TrackRemote, echoTrack *lksdk.LocalTrack) {
+func forwardRTP(track *webrtc.TrackRemote, echoTrack *lksdk.LocalTrack, kind string) {
 	for {
 		pkt, _, err := track.ReadRTP()
 		if err != nil {
+			log.Printf("%s RTP read error: %v", kind, err)
 			continue
 		}
-		echoTrack.WriteSample(media.Sample{Data: pkt.Payload, Duration: 20 * time.Millisecond}, &lksdk.SampleWriteOptions{})
+		if err := echoTrack.WriteRTP(pkt, &lksdk.SampleWriteOptions{}); err != nil {
+			log.Printf("%s RTP write error: %v", kind, err)
+		}
 	}
 }
 
 func newAccessToken(apiKey, apiSecret, roomName, pID string) (string, error) {
 	at := auth.NewAccessToken(apiKey, apiSecret)
+	canPub := true
+	canSub := true
 	grant := &auth.VideoGrant{
-		RoomJoin: true,
-		Room:     roomName,
+		RoomJoin:     true,
+		Room:         roomName,
+		CanPublish:   &canPub,
+		CanSubscribe: &canSub,
 	}
-	at.SetVideoGrant(grant).
-		SetIdentity(pID).
-		SetName(pID)
-
+	at.SetVideoGrant(grant)
+	at.SetIdentity(pID)
+	at.SetName(pID)
 	return at.ToJWT()
 }
